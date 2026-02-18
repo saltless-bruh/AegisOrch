@@ -1,4 +1,4 @@
-# AegisOrch (formerly AegisOrch)
+# AegisOrch (formerly PyMalScan)
 
 > **The Autonomous AI Immune System for Your Local Machine.**
 
