@@ -1,0 +1,6 @@
+psutil
+pyclamd
+yara-python
+rich
+pefile
+requests
