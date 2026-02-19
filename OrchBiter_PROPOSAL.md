@@ -11,7 +11,7 @@
 
 Existing agentic frameworks such as LangChain, CrewAI, and AutoGen operate under the assumption of unlimited, elastic cloud compute. They spawn processes and make API calls asynchronously, ignorant of the host machine's physical limitations. **OrchBiter** fundamentally rejects this "cloud assumption." It introduces **kernel-level resource arbitration**, allowing heavy local LLMs (like DeepSeek-R1) to coexist with intensive computational tasks—such as video encoding, large-scale compilation, or security scanning—without causing system instability or VRAM thrashing.
 
-This project repurposes the "surgical extraction" of the generic orchestration engine from a proven, autonomous penetration testing system. By decoupling the core architecture from offensive security logic, we provide developers with a robust skeleton for building high-stakes, local-first agentic workflows that require deterministic control and hardware awareness.
+>**Origin & Validation**: The core components of OrchBiter are not theoretical. They were designed, stress-tested, and validated inside **AAPt (AI Auto Penetration Testing)**, a production autonomous security research tool developed on Linux (Pop\_OS!). AAPt required running a local LLM alongside CPU-intensive hacking tools (`nuclei`, `ffmpeg`, custom scanners) on a single consumer GPU (RTX 3060 12GB) without crashing or thrashing. The orchestration engine that solved that problem *is* OrchBiter. This project extracts and generalizes that battle-tested skeleton, decoupling it from offensive security logic to provide a robust foundation for any high-stakes, local-first agentic workflow.
 
 ## **2. Problem Statement: The "Cloud Assumption" Gap**
 
@@ -38,30 +38,46 @@ OrchBiter is defined by three architectural pillars designed to enforce stabilit
 
 The framework acts as a specialized scheduler (Arbiter) for AI workloads, managing the contention between "Thinking" (Inference) and "Doing" (Tool Execution).
 
-* **Mechanism**: The `HardwareArbiter` class utilizes `SIGSTOP` and `SIGCONT` signals to manage process lifecycles at the kernel level. It explicitly handles **Process Trees** (using process groups) to ensure that pausing a parent tool also pauses its resource-hungry children.
+* **Mechanism**: The `HardwareArbiter` class utilizes `SIGSTOP` and `SIGCONT` signals to manage process life-cycles at the kernel level. It explicitly handles **Process Trees** (using process groups) to ensure that pausing a parent tool also pauses its resource-hungry children.
 * **Arbitration Logic**:
   * **Inference Priority**: When a Local LLM (e.g., DeepSeek-R1) needs to perform reasoning, the Arbiter checks for active "Heavy Tools."
   * **Preemption**: If a heavy tool is running, the Arbiter pauses it (`SIGSTOP`), granting the LLM exclusive access to VRAM and memory bandwidth. Once inference is complete, the tool is resumed (`SIGCONT`).
   * **Deadlock Prevention**: The Arbiter includes logic to detect dependency chains (e.g., if the LLM is waiting for the tool's output stream, it must NOT pause the tool).
 * **Result**: Prevents VRAM eviction and system freezing. A user can run a background task consuming 100% of the CPU, and the agent can seamlessly interrupt it to "think," then resume it.
 
+**Arbiter in Action — Example Log:**
+
+```text
+[Arbiter] LLM inference requested.  Active heavy tools: [ffmpeg PID 4821]
+[Arbiter] Dependency check passed — LLM not waiting on tool output stream.
+[Arbiter] Sending SIGSTOP to process group 4821... OK
+[VRAM]    Usage: 9.8 GB → 6.1 GB (headroom restored)
+[LLM]     Inference complete in 2.4s. Output: Strategy.json
+[Arbiter] Sending SIGCONT to process group 4821. Resuming heavy tools.
+[ffmpeg]  ...encoding resumed at frame 2103/5400 (38%)
+```
+
+*A user running a 4K video encode in the background experiences zero interruption. The encoder silently pauses for 2.4 seconds and resumes — invisible to the user.*
+
 ### **3.2. Hierarchical "Layered" Routing**
 
-OrchBiter enforces a strict military-style command hierarchy. We support both **Hybrid** (Cloud+Local) and **Fully Local** configurations.
+OrchBiter enforces a strict military-style command hierarchy. The **default and primary configuration is Fully Local** — no cloud dependency, no external API calls, complete data sovereignty. A Hybrid configuration is available as an optional performance enhancement.
 
-#### **Configuration A: The Hybrid Stack (Performance)**
+#### **Configuration A: The Fully Local Stack (Default — Privacy/Offline/Sovereign)**
 
-* **Layer 1 (Strategic Planning)**: DeepSeek-R1 (Local/API). Analyzes scope, generates `plan.yaml`. High VRAM usage.
-* **Layer 2 (Tactical Decomposition)**: Gemini Flash (API). Fast, efficient breakdown of objectives into tasks.
+> *This is the core identity of OrchBiter. Designed and validated on a single RTX 3060 12GB.*
+
+* **Layer 1 (Strategic Planning)**: DeepSeek-R1-Distill-32B (Local). High reasoning capability, high VRAM cost — only activated when needed.
+* **Layer 2 (Tactical Decomposition)**: Llama-3-8B-Instruct (Local). Fast task breakdown; loaded while L1 is offloaded.
+* **Layer 3 (Execution)**: Qwen-2.5-Coder-7B or Gemma-2-2B (Local). Optimized for function calling; minimal VRAM footprint.
+
+#### **Configuration B: The Hybrid Stack (Optional — Performance)**
+
+* **Layer 1 (Strategic Planning)**: DeepSeek-R1 (Local or API). Analyzes scope, generates `plan.yaml`.
+* **Layer 2 (Tactical Decomposition)**: Gemini Flash (API). Fast, cost-efficient breakdown of objectives.
 * **Layer 3 (Execution)**: Claude Haiku (API). "Doers, not thinkers." Executes strict JSON schemas via MCP.
 
-#### **Configuration B: The Fully Local Stack (Privacy/Offline)**
-
-* **Layer 1 (Strategic Planning)**: DeepSeek-R1-Distill-32B (Local).
-* **Layer 2 (Tactical Decomposition)**: Llama-3-8B-Instruct (Local).
-* **Layer 3 (Execution)**: Qwen-2.5-Coder-7B or Gemma-2-2B (Local). optimized for function calling.
-
-**Complexity-Based Escape Hatch**: If Layer 3 fails repeatedly or encounters an unknown state, it escalates to Layer 2. If Layer 2 cannot replan, it escalates to Layer 1 for a strategic pivot.
+**Complexity-Based Escape Hatch**: If Layer 3 fails repeatedly or encounters an unknown state, it escalates to Layer 2. If Layer 2 cannot replan, it escalates to Layer 1 for a strategic pivot. **Model Hot-Swapping**: The Arbiter manages VRAM by offloading the current layer's model to system RAM before loading the next, preventing out-of-memory errors on constrained hardware.
 
 ### **3.3. "Direct Truth" State Management**
 
@@ -88,10 +104,12 @@ The framework will be released as a modular PyPI package (`src/orchbiter`).
 ### **4.2 Tech Stack Choices**
 
 * **Language**: **Python 3.12+**. Native `asyncio` support is critical for high-concurrency orchestration.
-* **OS Support**: **Linux/macOS First**. (Windows support via WSL2). Native Windows support is planned for v2.0 due to signal handling differences.
+* **OS Support**: **Linux First** (Pop\_OS!, Ubuntu, Arch). macOS is secondary. Windows support is planned for v2.0 (native `SIGSTOP`/`SIGCONT` do not exist on Win32; WSL2 is the recommended workaround in the interim).
 * **Validation**: **Pydantic v2**. Strict data validation for all tool inputs/outputs.
 * **Persistence**: **SQLAlchemy + SQLite (WAL mode)**. Serverless, zero-config, concurrent-safe.
 * **UI**: **Textual**. Terminal-based dashboard to visualize agent thought processes and Arbiter state.
+* **Process & Resource Monitoring**: **`psutil`**. Cross-platform library for querying CPU, RAM, VRAM utilization and managing process lifecycles (required by `HardwareArbiter`).
+* **User Activity Detection**: **`evdev`** (Linux). Monitors Human Interface Devices (keyboard/mouse) to detect user activity and trigger the Arbiter's Freeze/Resume cycle. This is what allows the system to yield to the user transparently.
 
 ## **5. Comparison vs. Industry Standards**
 
@@ -101,7 +119,7 @@ The framework will be released as a modular PyPI package (`src/orchbiter`).
 | **Resource Control** | None (Async fire-and-forget) | **Kernel-Level Arbitration** | Allows concurrent running of Heavy AI + Heavy Tools. |
 | **State Persistence** | In-Memory / Vector Store | **SQL "Direct Truth"** | Guarantees recovery after crashes; auditable history. |
 | **Control Flow** | Conversational / Chat Loops | **Hierarchical Form Execution** | Deterministic behavior; easier to debug. |
-| **Agent Persona** | Roleplay / General Assistant | **Systems Engineer / Hacker** | Optimized for technical, high-stakes workflows. |
+| **Agent Persona** | Fixed Roleplay / Assistant | **Configurable via `PromptManager`** | Domain-agnostic; adapts to any technical workflow. |
 | **Tool Types** | APIs Only | **Process & API Hybrid** | Manages actual OS processes (compilers, scanners). |
 
 ## **6. Implementation Plan**
