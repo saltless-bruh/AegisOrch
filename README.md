@@ -2,61 +2,48 @@
 
 > **The Autonomous Agentic Reverse Engineering Framework.**
 
-AegisOrch has evolved. Formerly conceived as a local-first antivirus, AegisOrch is now a **fully automated, agent-driven reverse engineering orchestrator**.
+AegisOrch has evolved. Formerly conceived as a local-first antivirus, AegisOrch is now a **fully automated, multi-agent reverse engineering orchestrator**.
 
-Powered by **CrewAI**, **LangChain**, and **`llama.cpp`**, AegisOrch doesn't just quarantine a suspicious file—it automatically decompiles it, reads the pseudocode, identifies Command & Control (C2) callbacks, and generates a comprehensive MITRE ATT&CK intelligence report, all running locally on consumer hardware.
+Powered by **CrewAI**, **LangChain**, and a local **`llama.cpp` router daemon**, AegisOrch automatically decompiles suspicious binaries, reasons through highly obfuscated assembly, identifies Command & Control (C2) callbacks, and generates comprehensive MITRE ATT&CK intelligence reports—all running locally on consumer hardware.
 
-## 🚀 The Vision: From Defense to Decompilation
+## 🚀 The Vision: An Enterprise RE Lab on Your Desktop
 
-Traditional AV tells you a file is bad. AegisOrch tells you _why_ it's bad, _how_ it works, and _where_ it's trying to communicate.
+Traditional AV tells you a file is bad. AegisOrch tells you _why_ it's bad, _how_ it works, and _where_ it's trying to communicate, surviving marathon analysis runs without context degradation.
 
-By shifting from our custom `OrchBiter` framework to the industry-standard **CrewAI + LangChain** ecosystem, AegisOrch taps into a massive library of agentic tooling. To run heavy AI analysis alongside intensive decompilation tasks (like Radare2 or Ghidra) without freezing the host OS, AegisOrch implements **Sequential Crew Execution** and **Hardware-Aware Tool Locks**.
+AegisOrch is specifically tailored for local execution (Target Hardware: **Nvidia RTX 3060 12GB VRAM + 32GB System RAM**). To achieve this without melting the host OS, it utilizes a carefully curated stack of Mixture of Experts (MoE), Distilled Reasoning, and embedding models managed by a single background daemon.
 
-### 🧠 The LLM Engine: The `llama.cpp` Daemon
+### 🧠 The AegisOrch AI Stack (Daemon Models)
 
-AegisOrch is designed to be instantly available from any terminal directory. Instead of loading massive AI models into Python on every run, AegisOrch relies on a background `llama.cpp` server daemon.
+We utilize `llama.cpp`'s router mode to dynamically switch between four specialized models, perfectly threading the 44GB memory pool (~27.5GB total footprint), leaving ample room for background RE tools like Radare2 and Ghidra.
 
-**The Target Model:** `unsloth/Nemotron-3-Nano-30B-A3B-GGUF`
-
-- **The Hardware Sweet Spot:** Tailored for systems like an **Nvidia RTX 3060 (12GB VRAM)** paired with **32GB DDR5 RAM** and a strong CPU (Ryzen 7).
+1. **The Scout (`unsloth/functiongemma-270m-it-GGUF`)**
     
-- **Hybrid Execution:** We offload ~10GB of the model to the GPU, leaving VRAM headroom for the OS, while the remaining layers offload to high-speed DDR5. Because it's an MoE (Mixture of Experts) model, it achieves lightning-fast inference for marathon analysis runs.
-    
-
-## 🕵️‍♂️ The Reverse Engineering Crew (CrewAI)
-
-AegisOrch coordinates a specialized team of autonomous AI agents:
-
-1. **🦅 The Scout (Triage & Fingerprinting)**
-    
-    - _Mission:_ Identifies packed or obfuscated executables via static analysis (PE headers, high entropy calculation).
+    - _Role:_ Lightning-fast triage. Analyzes PE headers and entropy in milliseconds to decide if a file warrants deep analysis.
         
-    - _Output:_ Flags high-risk binaries and hands the file path to the decompilation agent.
-        
-2. **🐺 The Hunter (The Decompiler)**
+2. **The Brain (`unsloth/DeepSeek-R1-Distill-Qwen-14B-GGUF`)**
     
-    - _Mission:_ Interacts with RE tools (Radare2 `r2pipe` / PyGhidra MCP Server) to safely unpack, extract strings, and generate C-pseudocode or x86 assembly from the `main()` function.
+    - _Role:_ The Manager / Macro-Reasoner. Uses deep `<think>` blocks to strategize the reverse engineering process, delegating specific decompilation tasks to the Worker without losing the overarching threat-intel plot.
         
-    - _Hardware Control:_ Uses strict LangChain `@tool` mutex locks to ensure CPU-heavy decompilation doesn't compete with GPU-heavy LLM inference.
-        
-3. **🧠 The Brain (Senior Malware Analyst)**
+3. **The Hunter & Scribe (`unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF`)**
     
-    - _Mission:_ The core reasoning persona. Queries the `llama.cpp` Nemotron daemon to analyze the extracted pseudocode, hunting for persistence hooks, cryptography, and network beacons.
+    - _Role:_ The Tool Worker. Wakes up to execute LangChain tools (e.g., Ghidra MCP server, `r2pipe`), parses raw x86 assembly, and outputs strict JSON.
         
-4. **📜 The Scribe (Intelligence Reporter)**
+    - _The Synergy:_ Because it shares the exact same tokenizer vocabulary as the DeepSeek-R1-Qwen Brain, `llama.cpp` swaps between the Thinker and Worker instantly without flushing the KV cache.
+        
+4. **The LLM-Wiki (`unsloth/embeddinggemma-300m-GGUF`)**
     
-    - _Mission:_ Consolidates the Brain's JSON findings into a beautiful, human-readable Markdown report mapped to the MITRE ATT&CK framework.
+    - _Role:_ The Memory Engine. Powers AegisOrch's local ChromaDB, allowing the agents to instantly recall Windows API structures and previous findings during 5-hour marathon analysis runs.
         
 
 ## 🏗️ Core Architecture Features
 
-- **Sequential Process Flow:** CrewAI is strictly configured to run agents sequentially. The Scout finishes completely before the Hunter starts, preventing your system from thrashing due to resource contention.
+- **Hierarchical Crew Execution:** The R1 Thinker acts as the manager, while the Qwen3-Coder acts as the worker. This prevents the reasoning model from breaking JSON schemas and keeps tool execution flawless.
     
-- **Hardware-Aware LangChain Tools:** Decompilation tools are wrapped in `threading.Lock` semaphores. If a heavy binary analysis is running, LLM requests queue up patiently.
+- **The LLM-Wiki (RAG Memory):** Agents maintain a continuous dynamic memory. If the Worker decrypts an XOR loop in function 1, the Thinker will remember that exact XOR key 4 hours later when analyzing function 50.
     
-- **Crash-Proof "Direct Truth" Memory:** Reverse engineering is volatile. Through custom LangChain Callbacks, every extracted IOC, pseudocode snippet, and agent thought is instantly committed to a local **SQLite WAL database**. If the system OOMs or crashes, the forensic ledger survives.
+- **Hardware-Aware LangChain Tools:** CPU-heavy decompilation tools are wrapped in `threading.Lock` mutexes, ensuring reversing tools and LLM inference never compete for system resources simultaneously.
     
-- **Dynamic Context Hooks (AIDebug Inspired):** Future integration for watching dynamic memory diffs (e.g., `VirtualProtect` calls) and feeding runtime execution traces directly to the Brain agent.
+- **Crash-Proof "Direct Truth":** Every extracted IOC, pseudocode snippet, and agent thought is instantly committed to a local **SQLite WAL database**.
     
 
 ## 🛠️ Installation & Setup
@@ -69,20 +56,24 @@ AegisOrch coordinates a specialized team of autonomous AI agents:
     
 - 12GB+ VRAM & 32GB+ System RAM
     
-- `llama.cpp` compiled with CUDA support
-    
 - Radare2 or Ghidra (for headless decompilation)
     
+- `llama.cpp` compiled with CUDA support
+    
 
-### 1. Start the LLM Daemon
+### 1. Setup the Model Directory
 
-Configure a `systemd` service or run the server manually:
+Create a folder named `aegis_models` and place the four `.gguf` files (listed above) inside.
+
+### 2. Start the LLM Router Daemon
+
+AegisOrch expects the AI engine to be running in the background. Start `llama.cpp` pointing to the directory:
 
 ```
-./llama-server -m models/Nemotron-3-Nano-30B-A3B.Q4_K_M.gguf -ngl 33 --host 127.0.0.1 --port 8080
+./llama-server --model-dir ./aegis_models --host 127.0.0.1 --port 8080 -ngl 99 --ctx-size 32768
 ```
 
-### 2. Setup AegisOrch
+### 3. Setup AegisOrch
 
 ```
 git clone [https://github.com/your-repo/AegisOrch.git](https://github.com/your-repo/AegisOrch.git)
@@ -90,7 +81,7 @@ cd AegisOrch
 pip install -r requirements.txt
 ```
 
-### 3. Trigger an Autonomous Hunt
+### 4. Trigger an Autonomous Hunt
 
 ```
 # Run AegisOrch on a specific suspicious binary
@@ -99,15 +90,15 @@ python3 -m aegisorch analyze --target ./suspicious_sample.exe
 
 ## 📜 Roadmap
 
-- [x] **Phase 1**: Pivot architecture to CrewAI + LangChain.
+- [x] **Phase 1**: Pivot architecture to CrewAI + LangChain + `llama.cpp` Router.
     
-- [x] **Phase 2**: Implement Static Analysis (Entropy/PE) Scout Agent.
+- [x] **Phase 2**: Define the Quad-Model (Scout, Thinker, Worker, Memory) hardware-optimized stack.
     
-- [ ] **Phase 3**: Integrate `r2pipe` LangChain tools for automated assembly extraction.
+- [ ] **Phase 3**: Implement the LLM-Wiki ChromaDB memory system using EmbeddingGemma.
     
-- [ ] **Phase 4**: Implement PyGhidra MCP Server connection for deep C-pseudocode analysis.
+- [ ] **Phase 4**: Integrate `r2pipe` and PyGhidra MCP Server as strict LangChain tools for the Worker agent.
     
-- [ ] **Phase 5**: Dynamic execution hooking and registry snapshots.
+- [ ] **Phase 5**: Dynamic execution hooking (AIDebug style) and registry snapshots integration.
     
 
 ## License
